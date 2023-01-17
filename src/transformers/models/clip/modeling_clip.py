@@ -842,6 +842,7 @@ class CLIPVisionTransformer(nn.Module):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        image_mask: Optional[torch.FloatTensor] = None,
     ) -> Union[Tuple, BaseModelOutputWithPooling]:
         r"""
         Returns:
@@ -855,8 +856,22 @@ class CLIPVisionTransformer(nn.Module):
 
         if pixel_values is None:
             raise ValueError("You have to specify pixel_values")
-
         hidden_states = self.embeddings(pixel_values)
+        if image_mask is not None:
+
+            batch_size = pixel_values.shape[0]
+            assert batch_size == 1
+            image_size = pixel_values.shape[-1]
+            patch_size = self.embeddings.patch_size
+            n_patches =  image_size // patch_size
+            total_patches = n_patches * n_patches
+
+            seq_mask = image_mask.view(batch_size, 1, n_patches, patch_size, n_patches, patch_size)
+            seq_mask = seq_mask.sum(dim=(3,5)).reshape(batch_size, total_patches)
+            batch_id, seq_id = torch.where(seq_mask < 3.0)
+            new_hidden_state = torch.cat([hidden_states[:, seq_id, :], hidden_states[:, -1:, :]], dim=1)
+            hidden_states = new_hidden_state
+
         hidden_states = self.pre_layrnorm(hidden_states)
 
         encoder_outputs = self.encoder(
@@ -905,6 +920,7 @@ class CLIPVisionModel(CLIPPreTrainedModel):
         pixel_values: Optional[torch.FloatTensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
+        image_mask: Optional[torch.FloatTensor] = None,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, BaseModelOutputWithPooling]:
         r"""
@@ -934,6 +950,7 @@ class CLIPVisionModel(CLIPPreTrainedModel):
         return self.vision_model(
             pixel_values=pixel_values,
             output_attentions=output_attentions,
+            image_mask=image_mask,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
